@@ -1,12 +1,20 @@
 import sys
 import math
-from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QLabel
-from PySide6.QtCore import Qt, QPoint, QRectF, QPointF
-from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont
+from PySide6.QtWidgets import QApplication, QGraphicsView, QGraphicsScene, QLabel
+from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont, QPolygonF
+
+from main_window import MainWindow
 
 class GridView(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Polygon management variables
+        self.polygon_points = []  # List of QPointF for polygon vertices
+        self.current_polygon = None  # Will be a QGraphicsPolygonItem
+        self.point_items = []  # List to keep track of point markers
+        self.completed_polygons = []
         
         # Create scene with generous bounds
         self.scene = QGraphicsScene(self)
@@ -75,7 +83,7 @@ class GridView(QGraphicsView):
         self.highlight_radius = 5  # Radius of the green highlight circle
         self.highlight_nearest = False  # Whether to show the highlight
         self.highlight_max_distance = 30  # Maximum pixel distance to show highlight
-        
+
         # Initial view
         self.centerOn(0, 0)
         
@@ -217,18 +225,6 @@ class GridView(QGraphicsView):
         self.grid_info_label.setText(f"Grid: {effective_grid_size:.1f}px | Scale: {current_scale:.4f}x")
         self.grid_info_label.adjustSize()
         
-    def mousePressEvent(self, event):
-        """Handle mouse press events"""
-        if event.button() == Qt.RightButton:
-            self.setDragMode(QGraphicsView.NoDrag)
-            self.last_mouse_pos = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
-        elif event.button() == Qt.LeftButton and self.highlight_nearest:
-            # Print the coordinates of the highlighted grid point to the console
-            print(f"Selected grid point: ({self.nearest_grid_point.x()}, {-self.nearest_grid_point.y()})")
-            
-        super().mousePressEvent(event)
-        
     def mouseMoveEvent(self, event):
         """Handle mouse move events"""
         # Map the mouse position to scene coordinates
@@ -308,15 +304,181 @@ class GridView(QGraphicsView):
         # Force update
         self.viewport().update()
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
+    def update_polygon(self):
+        """Update the polygon with current points"""
+        # Remove existing polygon if any
+        if self.current_polygon:
+            self.scene.removeItem(self.current_polygon)
+            self.current_polygon = None
         
-        self.setWindowTitle("Interactive Grid Viewer")
-        self.resize(800, 600)
+        # Need at least 2 points to draw a line
+        if len(self.polygon_points) >= 2:
+            # Create a QPolygonF from the points
+            poly = QPolygonF(self.polygon_points)
+            
+            # Create a polygon item with semi-transparent fill
+            self.current_polygon = self.scene.addPolygon(
+                poly,
+                QPen(QColor(0, 0, 255, 200), 2/self.transform().m11()),
+                QBrush(QColor(0, 0, 255, 50))
+            )
+
+    def remove_last_point(self):
+        """Remove the last added point"""
+        if self.polygon_points:
+            # Remove the last point
+            removed_point = self.polygon_points.pop()
+            
+            # Remove its visual marker
+            if self.point_items:
+                last_marker = self.point_items.pop()
+                self.scene.removeItem(last_marker)
+            
+            # Update the polygon
+            self.update_polygon()
+            
+            # Print the removed point
+            print(f"Removed point: ({removed_point.x()}, {removed_point.y()})")
+
+    def center_on_point(self, x, y):
+        """Center the view on a specific point"""
+        self.centerOn(x, y)
+        print(f"Centered on point: ({x}, {y})")
+
+    def mousePressEvent(self, event):
+        """Handle mouse press events"""
+        if event.button() == Qt.RightButton:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.last_mouse_pos = event.globalPosition().toPoint()
+            self.setCursor(Qt.ClosedHandCursor)
+        elif event.button() == Qt.LeftButton:
+            # If a grid point is highlighted, try to add it to the polygon
+            if self.highlight_nearest:
+                x, y = self.nearest_grid_point.x(), self.nearest_grid_point.y()
+                # Print the coordinates of the highlighted grid point to the console
+                print(f"Selected grid point: ({x}, {y})")
+                # Try to add this point to the polygon with validation
+                self.add_polygon_point(x, y)
+            
+        super().mousePressEvent(event)
+
+    def is_isothetic_direction(self, last_point, new_point):
+        """Check if the direction from last_point to new_point is horizontal or vertical (isothetic)"""
+        # A movement is isothetic if it's either purely horizontal or purely vertical
+        return (abs(last_point.x() - new_point.x()) < 0.001) or (abs(last_point.y() - new_point.y()) < 0.001)
+
+    def is_polygon_closed(self, new_point):
+        """Check if adding this point would close the polygon by returning to the starting point"""
+        if len(self.polygon_points) >= 3:  # Need at least 3 points before closing
+            start_point = self.polygon_points[0]
+            return (abs(start_point.x() - new_point.x()) < 0.001 and 
+                    abs(start_point.y() - new_point.y()) < 0.001)
+        return False
+
+    def is_valid_isothetic_polygon(self):
+        """Check if the current polygon follows isothetic rules (each segment is horizontal or vertical)"""
+        if len(self.polygon_points) < 4:
+            return False
+            
+        for i in range(len(self.polygon_points)):
+            p1 = self.polygon_points[i]
+            p2 = self.polygon_points[(i + 1) % len(self.polygon_points)]
+            
+            if not self.is_isothetic_direction(p1, p2):
+                return False
+                
+        return True
+
+    def add_polygon_point(self, x, y):
+        """Add a point to the current polygon with isothetic validation"""
+        new_point = QPointF(x, y)
         
-        self.grid_view = GridView(self)
-        self.setCentralWidget(self.grid_view)
+        # Check if this would be valid in the isothetic polygon
+        if self.polygon_points:
+            last_point = self.polygon_points[-1]
+            
+            # If not an isothetic move, don't add the point
+            if not self.is_isothetic_direction(last_point, new_point):
+                print(f"Invalid point: ({x}, {y}) - not horizontal or vertical from last point")
+                return False
+                
+            # Check if this closes the polygon
+            if self.is_polygon_closed(new_point):
+                # Complete the polygon if it's valid
+                if self.is_valid_isothetic_polygon():
+                    print(f"Polygon completed! It's a valid isothetic polygon.")
+                    # Finalize the current polygon
+                    self.finalize_polygon()
+                    return True
+                else:
+                    print("Cannot close polygon: not a valid isothetic polygon")
+                    return False
+        
+        # Add the point to the polygon
+        self.polygon_points.append(new_point)
+        
+        # Create a visual point marker
+        point_marker = self.scene.addEllipse(
+            x - 5/self.transform().m11(), 
+            y - 5/self.transform().m11(), 
+            10/self.transform().m11(), 
+            10/self.transform().m11(), 
+            QPen(QColor(255, 0, 0)), 
+            QBrush(QColor(255, 0, 0, 200))
+        )
+        self.point_items.append(point_marker)
+        
+        # Update the polygon
+        self.update_polygon()
+        
+        # Print the added point
+        print(f"Added point: ({x}, {y})")
+        return True
+
+    def finalize_polygon(self):
+        """Finalize the current polygon and prepare for a new one"""
+        # Store the completed polygon
+        if not hasattr(self, 'completed_polygons'):
+            self.completed_polygons = []
+            
+        # Create a copy of the current polygon points
+        completed_points = [QPointF(p) for p in self.polygon_points]
+        self.completed_polygons.append({
+            'points': completed_points,
+            'polygon': self.current_polygon
+        })
+        
+        # The current polygon is now part of completed polygons, don't remove it
+        self.current_polygon = None
+        
+        # Clear current points but keep the graphical items visible
+        self.polygon_points = []
+        self.point_items = []
+        
+        print(f"Polygon finalized, total polygons: {len(self.completed_polygons)}")
+
+    def remove_polygon(self):
+        """Remove the current polygon being drawn or the last completed one if no current polygon"""
+        if self.polygon_points:
+            # Remove current polygon being drawn
+            for marker in self.point_items:
+                self.scene.removeItem(marker)
+            self.point_items.clear()
+            
+            if self.current_polygon:
+                self.scene.removeItem(self.current_polygon)
+                self.current_polygon = None
+                
+            self.polygon_points.clear()
+            print("Current polygon removed")
+        elif hasattr(self, 'completed_polygons') and self.completed_polygons:
+            # Remove the last completed polygon
+            last_polygon = self.completed_polygons.pop()
+            self.scene.removeItem(last_polygon['polygon'])
+            print(f"Last completed polygon removed, {len(self.completed_polygons)} remaining")
+        else:
+            print("No polygons to remove")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
