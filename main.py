@@ -1,9 +1,8 @@
 import sys
 import math
 from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QLabel
-from PySide6.QtCore import Qt, QPoint, QRectF
+from PySide6.QtCore import Qt, QPoint, QRectF, QPointF
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont
-
 
 class GridView(QGraphicsView):
     def __init__(self, parent=None):
@@ -71,6 +70,12 @@ class GridView(QGraphicsView):
         self.grid_info_label.adjustSize()
         self.grid_info_label.show()
         
+        # Nearest grid point variables
+        self.nearest_grid_point = QPointF(0, 0)
+        self.highlight_radius = 5  # Radius of the green highlight circle
+        self.highlight_nearest = False  # Whether to show the highlight
+        self.highlight_max_distance = 30  # Maximum pixel distance to show highlight
+        
         # Initial view
         self.centerOn(0, 0)
         
@@ -99,6 +104,41 @@ class GridView(QGraphicsView):
             return 1
         else:
             return 0.1  # Very fine grid for extreme zoom
+    
+    def find_nearest_grid_point(self, scene_pos):
+        """Find the nearest grid intersection point to the given scene position"""
+        grid_size = self.get_adaptive_grid_size()
+        
+        # Calculate the nearest grid point
+        grid_x = round(scene_pos.x() / grid_size) * grid_size
+        grid_y = round(scene_pos.y() / grid_size) * grid_size
+        
+        return QPointF(grid_x, grid_y)
+        
+    def drawForeground(self, painter, rect):
+        """Draw foreground elements including the green highlight dot"""
+        super().drawForeground(painter, rect)
+        
+        # Draw the green highlight at the nearest grid point if enabled
+        if self.highlight_nearest:
+            # Get the current transform scale
+            transform = self.transform()
+            current_scale = transform.m11()
+            
+            # Scale the highlight size based on zoom level
+            scaled_radius = self.highlight_radius / current_scale
+            
+            # Create a green pen for the highlight
+            highlight_pen = QPen(QColor(0, 180, 0))
+            highlight_pen.setWidthF(2 / current_scale)
+            painter.setPen(highlight_pen)
+            
+            # Create a semi-transparent green brush
+            highlight_brush = QBrush(QColor(0, 255, 0, 180))
+            painter.setBrush(highlight_brush)
+            
+            # Draw the highlight circle
+            painter.drawEllipse(self.nearest_grid_point, scaled_radius, scaled_radius)
         
     def drawBackground(self, painter, rect):
         """Custom background drawing to create the grid"""
@@ -181,8 +221,12 @@ class GridView(QGraphicsView):
         """Handle mouse press events"""
         if event.button() == Qt.RightButton:
             self.setDragMode(QGraphicsView.NoDrag)
-            self.last_mouse_pos = event.globalPosition().toPoint()
+            self.last_mouse_pos = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+        elif event.button() == Qt.LeftButton and self.highlight_nearest:
+            # Print the coordinates of the highlighted grid point to the console
+            print(f"Selected grid point: ({self.nearest_grid_point.x()}, {-self.nearest_grid_point.y()})")
+            
         super().mousePressEvent(event)
         
     def mouseMoveEvent(self, event):
@@ -201,9 +245,24 @@ class GridView(QGraphicsView):
         if abs(scene_pos.y()) < adjusted_threshold:
             scene_pos.setY(0)
         
+        # Find the nearest grid point
+        self.nearest_grid_point = self.find_nearest_grid_point(scene_pos)
+        
+        # Calculate distance to nearest grid point in pixels
+        nearest_point_in_view = self.mapFromScene(self.nearest_grid_point)
+        mouse_pos_in_view = event.pos()
+        
+        # Use Euclidean distance instead of Manhattan distance for more accurate detection
+        dx = nearest_point_in_view.x() - mouse_pos_in_view.x()
+        dy = nearest_point_in_view.y() - mouse_pos_in_view.y()
+        distance = math.sqrt(dx*dx + dy*dy)
+        
+        # Only highlight if the nearest point is within the threshold distance
+        self.highlight_nearest = distance <= self.highlight_max_distance
+        
         # Round to 2 decimal places for display
         rounded_x = round(scene_pos.x(), 2)
-        rounded_y = round(scene_pos.y(), 2)
+        rounded_y = round(-scene_pos.y(), 2)
         
         # Update the coordinate label (fixed size UI element)
         self.coords_label.setText(f"Coordinates: ({rounded_x}, {rounded_y})")
@@ -216,6 +275,9 @@ class GridView(QGraphicsView):
             
             # Move the scene in the direction opposite to mouse movement (for natural feel)
             self.translate(-delta.x(), -delta.y())
+        
+        # Force update to refresh the highlight
+        self.viewport().update()
             
         super().mouseMoveEvent(event)
         
@@ -246,7 +308,6 @@ class GridView(QGraphicsView):
         # Force update
         self.viewport().update()
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -256,7 +317,6 @@ class MainWindow(QMainWindow):
         
         self.grid_view = GridView(self)
         self.setCentralWidget(self.grid_view)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
