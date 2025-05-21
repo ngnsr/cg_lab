@@ -45,6 +45,10 @@ class MainWindow(QMainWindow):
         self.finish_button = QPushButton('Finish Polygon')
         self.finish_button.clicked.connect(self.finish_polygon)
         
+        # Add "Calculate Intersection" button (singular, to reflect single intersection)
+        self.intersect_button = QPushButton('Calculate Intersection')
+        self.intersect_button.clicked.connect(self.grid_view.calculate_intersection)
+        
         # Add help button
         self.help_button = QPushButton('Help')
         self.help_button.clicked.connect(self.show_help)
@@ -57,6 +61,7 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.remove_last_point_button)
         self.controls_layout.addWidget(self.remove_polygon_button)
         self.controls_layout.addWidget(self.finish_button)
+        self.controls_layout.addWidget(self.intersect_button)
         self.controls_layout.addWidget(self.help_button)
         
         # Add controls panel to main layout
@@ -70,7 +75,7 @@ class MainWindow(QMainWindow):
         self.toast_label.setStyleSheet("background-color: #333; color: white; padding: 10px; border-radius: 5px;")
         self.toast_label.setAlignment(Qt.AlignCenter)
         self.toast_label.setFixedSize(400, 50)
-        self.toast_label.move((self.width() - 300) // 2, self.height() - 60)
+        self.toast_label.move((self.width() - 400) // 2, self.height() - 60)
         self.toast_label.hide()
         
         # Connect GridView's invalid_action signal to show_toast
@@ -79,7 +84,7 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         """Reposition toast label on resize"""
         super().resizeEvent(event)
-        self.toast_label.move((self.width() - 300) // 2, self.height() - 60)
+        self.toast_label.move((self.width() - 400) // 2, self.height() - 60)
     
     def show_toast(self, message, duration=2000):
         """Show a toast message"""
@@ -91,7 +96,7 @@ class MainWindow(QMainWindow):
         try:
             x = float(self.inputX.text())
             y = float(self.inputY.text())
-            result = self.grid_view.add_polygon_point(x, y)
+            result = self.grid_view.add_polygon_point(x, -y)
             if not result:
                 # If add_polygon_point returns False, an invalid point was selected
                 pass  # The toast will be shown via signal
@@ -127,8 +132,9 @@ class MainWindow(QMainWindow):
   <li>Enter x, y coordinates and click "Add Point" to add a point to the polygon</li>
   <li>"Find Point" centers the view on the specified coordinates</li>
   <li>"Remove Last Point" deletes the last added point</li>
-  <li>"Remove Polygon" clears all points</li>
+  <li>"Remove Polygon" clears all points or the last completed polygon</li>
   <li>"Finish Polygon" finalizes the current polygon (must have at least 3 points and be closed)</li>
+  <li>"Calculate Intersection" computes and displays the common intersection of all completed polygons</li>
 </ul>
 """
         QMessageBox.information(self, "Help", help_text)
