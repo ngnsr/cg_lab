@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog
 from PySide6.QtCore import QTimer, Qt
 from grid import GridView
 
@@ -45,9 +45,17 @@ class MainWindow(QMainWindow):
         self.finish_button = QPushButton('Finish Polygon')
         self.finish_button.clicked.connect(self.finish_polygon)
         
-        # Add "Calculate Intersection" button (singular, to reflect single intersection)
+        # Add "Calculate Intersection" button
         self.intersect_button = QPushButton('Calculate Intersection')
         self.intersect_button.clicked.connect(self.grid_view.calculate_intersection)
+        
+        # Add "Export Polygons" button
+        self.export_button = QPushButton('Export Polygons')
+        self.export_button.clicked.connect(self.export_polygons)
+        
+        # Add "Import Polygons" button
+        self.import_button = QPushButton('Import Polygons')
+        self.import_button.clicked.connect(self.import_polygons)
         
         # Add help button
         self.help_button = QPushButton('Help')
@@ -62,6 +70,8 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.remove_polygon_button)
         self.controls_layout.addWidget(self.finish_button)
         self.controls_layout.addWidget(self.intersect_button)
+        self.controls_layout.addWidget(self.export_button)
+        self.controls_layout.addWidget(self.import_button)
         self.controls_layout.addWidget(self.help_button)
         
         # Add controls panel to main layout
@@ -112,11 +122,32 @@ class MainWindow(QMainWindow):
             y = float(self.inputY.text())
             self.grid_view.center_on_point(x, y)
         except ValueError:
+            # Show error if inputs are not valid numbers
             self.show_toast("Invalid Input: Please enter valid numerical coordinates.")
     
     def finish_polygon(self):
         """Call GridView's finalize_polygon method"""
         self.grid_view.finalize_polygon()
+    
+    def export_polygons(self):
+        """Export polygons and intersection to a JSON file"""
+        file_name, _ = QFileDialog.getSaveFileName(self, "Export Polygons", "", "JSON Files (*.json)")
+        if file_name:
+            try:
+                self.grid_view.export_polygons(file_name)
+                self.show_toast("Polygons exported successfully")
+            except Exception as e:
+                self.show_toast(f"Export failed: {str(e)}")
+    
+    def import_polygons(self):
+        """Import polygons from a JSON file"""
+        file_name, _ = QFileDialog.getOpenFileName(self, "Import Polygons", "", "JSON Files (*.json)")
+        if file_name:
+            try:
+                self.grid_view.import_polygons(file_name)
+                self.show_toast("Polygons imported successfully")
+            except Exception as e:
+                self.show_toast(f"Import failed: {str(e)}")
     
     def show_help(self):
         help_text = """
@@ -135,6 +166,8 @@ class MainWindow(QMainWindow):
   <li>"Remove Polygon" clears all points or the last completed polygon</li>
   <li>"Finish Polygon" finalizes the current polygon (must have at least 3 points and be closed)</li>
   <li>"Calculate Intersection" computes and displays the common intersection of all completed polygons</li>
+  <li>"Export Polygons" saves all polygons and their intersection to a JSON file</li>
+  <li>"Import Polygons" loads polygons from a JSON file, replacing existing ones</li>
 </ul>
 """
         QMessageBox.information(self, "Help", help_text)
