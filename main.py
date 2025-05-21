@@ -1,8 +1,6 @@
 import sys
-from PySide6.QtWidgets import QApplication
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QMessageBox
-)
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox
+from PySide6.QtCore import QTimer, Qt
 from grid import GridView
 
 class MainWindow(QMainWindow):
@@ -38,10 +36,18 @@ class MainWindow(QMainWindow):
         self.find_button.clicked.connect(self.find_point)
         
         self.remove_last_point_button = QPushButton('Remove Last Point')
-        self.remove_last_point_button.clicked.connect(self.remove_last_point)
+        self.remove_last_point_button.clicked.connect(self.grid_view.remove_last_point)
         
         self.remove_polygon_button = QPushButton('Remove Polygon')
-        self.remove_polygon_button.clicked.connect(self.remove_polygon)
+        self.remove_polygon_button.clicked.connect(self.grid_view.remove_polygon)
+        
+        # Add "Finish Polygon" button
+        self.finish_button = QPushButton('Finish Polygon')
+        self.finish_button.clicked.connect(self.finish_polygon)
+        
+        # Add help button
+        self.help_button = QPushButton('Help')
+        self.help_button.clicked.connect(self.show_help)
         
         # Add widgets to controls layout
         self.controls_layout.addWidget(self.inputX)
@@ -50,28 +56,50 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.find_button)
         self.controls_layout.addWidget(self.remove_last_point_button)
         self.controls_layout.addWidget(self.remove_polygon_button)
+        self.controls_layout.addWidget(self.finish_button)
+        self.controls_layout.addWidget(self.help_button)
         
         # Add controls panel to main layout
         self.main_layout.addWidget(self.controls_panel)
         
-        # Add help button
-        self.help_button = QPushButton('Help')
-        self.help_button.clicked.connect(self.show_help)
-        self.controls_layout.addWidget(self.help_button)
-        
         # Set the central widget
         self.setCentralWidget(self.central_widget)
+        
+        # Create toast label for messages
+        self.toast_label = QLabel(self.central_widget)
+        self.toast_label.setStyleSheet("background-color: #333; color: white; padding: 10px; border-radius: 5px;")
+        self.toast_label.setAlignment(Qt.AlignCenter)
+        self.toast_label.setFixedSize(400, 50)
+        self.toast_label.move((self.width() - 300) // 2, self.height() - 60)
+        self.toast_label.hide()
+        
+        # Connect GridView's invalid_action signal to show_toast
+        self.grid_view.invalid_action.connect(self.show_toast)
+    
+    def resizeEvent(self, event):
+        """Reposition toast label on resize"""
+        super().resizeEvent(event)
+        self.toast_label.move((self.width() - 300) // 2, self.height() - 60)
+    
+    def show_toast(self, message, duration=2000):
+        """Show a toast message"""
+        self.toast_label.setText(message)
+        self.toast_label.show()
+        QTimer.singleShot(duration, self.toast_label.hide)
     
     def add_point(self):
         try:
             x = float(self.inputX.text())
             y = float(self.inputY.text())
-            self.grid_view.add_polygon_point(x, y)
+            result = self.grid_view.add_polygon_point(x, y)
+            if not result:
+                # If add_polygon_point returns False, an invalid point was selected
+                pass  # The toast will be shown via signal
             self.inputX.clear()
             self.inputY.clear()
         except ValueError:
             # Show error if inputs are not valid numbers
-            QMessageBox.warning(self, "Invalid Input", "Please enter valid numerical coordinates.")
+            self.show_toast("Invalid Input: Please enter valid numerical coordinates.")
     
     def find_point(self):
         try:
@@ -79,13 +107,11 @@ class MainWindow(QMainWindow):
             y = float(self.inputY.text())
             self.grid_view.center_on_point(x, y)
         except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Please enter valid numerical coordinates.")
+            self.show_toast("Invalid Input: Please enter valid numerical coordinates.")
     
-    def remove_last_point(self):
-        self.grid_view.remove_last_point()
-    
-    def remove_polygon(self):
-        self.grid_view.remove_polygon()
+    def finish_polygon(self):
+        """Call GridView's finalize_polygon method"""
+        self.grid_view.finalize_polygon()
     
     def show_help(self):
         help_text = """
@@ -102,6 +128,7 @@ class MainWindow(QMainWindow):
   <li>"Find Point" centers the view on the specified coordinates</li>
   <li>"Remove Last Point" deletes the last added point</li>
   <li>"Remove Polygon" clears all points</li>
+  <li>"Finish Polygon" finalizes the current polygon (must have at least 3 points and be closed)</li>
 </ul>
 """
         QMessageBox.information(self, "Help", help_text)
