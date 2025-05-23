@@ -356,24 +356,35 @@ class GridView(QGraphicsView):
     
     def calculate_intersection(self):
         """Calculate the single intersection of all completed polygons"""
-        if len(self.completed_polygons) < 2:
+        if len(self.completed_polygons) < 2: # Still need at least two for a meaningful intersection
             self.invalid_action.emit("Need at least two polygons to calculate intersection")
             print("Need at least two polygons to calculate intersection")
             return
-        
+
         # Clear previous intersection polygons
         for item in self.intersection_polygons:
-            self.scene.removeItem(item)
+            if item.scene() == self.scene: # Check if item is still in the scene
+                self.scene.removeItem(item)
         self.intersection_polygons.clear()
-        
+
         # Compute the intersection of all polygons
-        intersection = self.compute_all_polygons_intersection()
-        
-        if intersection:
-            poly = QPolygonF(intersection)
+        # This will now return a QPolygonF object
+        intersection_qpolygon = self.compute_all_polygons_intersection()
+
+        if intersection_qpolygon and not intersection_qpolygon.isEmpty():
+            # QPolygonF.intersected() can return a complex polygon,
+            # potentially with multiple disjoint parts represented as a single QPolygonF.
+            # For isothetic polygons, the intersection is also isothetic (or a set of them).
+            
+            # Check if the current transform is available and valid for scaling the pen width
+            current_transform = self.transform()
+            pen_width_scale_factor = current_transform.m11()
+            if pen_width_scale_factor == 0: # Avoid division by zero if scale is 0
+                pen_width_scale_factor = 1.0
+
             intersection_item = self.scene.addPolygon(
-                poly,
-                QPen(QColor(0, 255, 0, 200), 2/self.transform().m11()),
+                intersection_qpolygon, # Directly pass the QPolygonF
+                QPen(QColor(0, 255, 0, 200), 2 / pen_width_scale_factor),
                 QBrush(QColor(0, 255, 0, 50))
             )
             self.intersection_polygons.append(intersection_item)
@@ -382,41 +393,67 @@ class GridView(QGraphicsView):
         else:
             self.invalid_action.emit("No common intersection found")
             print("No common intersection found")
-    
-    def compute_all_polygons_intersection(self):
-        """Compute the intersection of all completed polygons"""
-        if not self.completed_polygons:
-            return []
+
+    def compute_all_polygons_intersection(self) -> QPolygonF:
+        """Compute the intersection of all completed polygons.
+        Returns a QPolygonF representing the intersection, or an empty QPolygonF if no intersection."""
+        if not self.completed_polygons or len(self.completed_polygons) < 1: # Or < 2 if you prefer
+            return QPolygonF() # Return an empty QPolygonF
+
+        # Start with the first polygon
+        # Assuming self.completed_polygons stores dicts like {'points': [QPointF, ...]}
+        try:
+            # Ensure 'points' key exists and is not empty
+            first_poly_points = self.completed_polygons[0].get('points')
+            if not first_poly_points:
+                 print("Warning: First polygon for intersection has no points.")
+                 return QPolygonF()
+            current_intersection = QPolygonF(first_poly_points)
+        except IndexError:
+            print("Error: No polygons available to start intersection.")
+            return QPolygonF()
+        except Exception as e:
+            print(f"Error initializing first polygon for intersection: {e}")
+            return QPolygonF()
+
+        if current_intersection.isEmpty() and first_poly_points:
+            # This can happen if the first polygon is malformed (e.g., less than 3 points for a closed shape)
+            # QPolygonF([]) is empty. QPolygonF([QPointF(0,0), QPointF(1,1)]) is not empty but not closed.
+            # The .intersected() method should handle various inputs.
+            # If the first polygon is inherently "empty" or invalid for intersection,
+            # the result will likely be empty.
+            print(f"Warning: First polygon (points: {len(first_poly_points)}) resulted in an empty QPolygonF.")
+
+
+        # Iteratively intersect with the rest of the polygons
+        for i in range(1, len(self.completed_polygons)):
+            poly_data = self.completed_polygons[i]
+            poly_points = poly_data.get('points')
+
+            if not poly_points:
+                print(f"Warning: Polygon at index {i} has no points, skipping.")
+                # Intersecting with an "empty" concept polygon should result in an empty intersection.
+                # If current_intersection is already empty, it remains empty.
+                # If current_intersection is not empty, intersecting it with an undefined polygon
+                # should arguably make it empty.
+                return QPolygonF() # Or current_intersection = QPolygonF() and then break
+
+            next_polygon = QPolygonF(poly_points)
+            
+            if next_polygon.isEmpty() and poly_points:
+                 print(f"Warning: Polygon at index {i} (points: {len(poly_points)}) resulted in an empty QPolygonF.")
+                 # If this polygon is "empty", the intersection with it will be empty.
+                 current_intersection = QPolygonF() # Make the overall intersection empty
+                 break
+
+
+            current_intersection = current_intersection.intersected(next_polygon)
+
+            # If at any point the intersection becomes empty, no need to continue
+            if current_intersection.isEmpty():
+                break
         
-        # Get bounding box for each polygon
-        def get_bounding_box(points):
-            if not points:
-                return None
-            x_coords = [p.x() for p in points]
-            y_coords = [p.y() for p in points]
-            return (min(x_coords), min(y_coords), max(x_coords), max(y_coords))
-        
-        # Initialize with the first polygon's bounding box
-        boxes = [get_bounding_box(poly['points']) for poly in self.completed_polygons]
-        if None in boxes:
-            return []
-        
-        # Compute the intersection of all bounding boxes
-        x_left = max(box[0] for box in boxes)
-        y_top = max(box[1] for box in boxes)
-        x_right = min(box[2] for box in boxes)
-        y_bottom = min(box[3] for box in boxes)
-        
-        if x_right < x_left or y_bottom < y_top:
-            return []  # No intersection
-        
-        # Return the intersection as a polygon (rectangle)
-        return [
-            QPointF(x_left, y_top),
-            QPointF(x_right, y_top),
-            QPointF(x_right, y_bottom),
-            QPointF(x_left, y_bottom)
-        ]
+        return current_intersection
     
     def export_polygons(self, file_name):
         """Export completed polygons and intersection to a JSON file"""
