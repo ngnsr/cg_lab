@@ -110,17 +110,16 @@ def clip_polygon(subject_polygon: list[QPointF], clip_polygon: list[QPointF]) ->
                 print(f"    Adding Q (Q inside): ({Q.x()}, {Q.y()})")
                 output_list.append(Q)
             else:  # Both outside
-                pass
-                # intersection = compute_intersection(P, Q, A, B, clip_polygon)
-                # if intersection:
-                #     print(f"    Intersection (both outside, boundary check): ({intersection.x()}, {intersection.y()})")
-                #     output_list.append(intersection)
-                # # Preserve if on clip polygon boundary
-                # if (abs(P.y() - Q.y()) < 1e-10 and any(abs(P.y() - v.y()) < 1e-10 for v in clip_polygon)) or \
-                #    (abs(P.x() - Q.x()) < 1e-10 and any(abs(P.x() - v.x()) < 1e-10 for v in clip_polygon)):
-                #     print(f"    Adding P and Q as boundary segment: ({P.x()}, {P.y()}) to ({Q.x()}, {Q.y()})")
-                #     output_list.append(P)
-                #     output_list.append(Q)
+                intersection = compute_intersection(P, Q, A, B, clip_polygon)
+                if intersection:
+                    print(f"    Intersection (both outside, boundary check): ({intersection.x()}, {intersection.y()})")
+                    output_list.append(intersection)
+                # Preserve if on clip polygon boundary
+                if (abs(P.y() - Q.y()) < 1e-10 and any(abs(P.y() - v.y()) < 1e-10 for v in clip_polygon)) or \
+                   (abs(P.x() - Q.x()) < 1e-10 and any(abs(P.x() - v.x()) < 1e-10 for v in clip_polygon)):
+                    print(f"    Adding P and Q as boundary segment: ({P.x()}, {P.y()}) to ({Q.x()}, {Q.y()})")
+                    output_list.append(P)
+                    output_list.append(Q)
 
         # Remove duplicates and filter points outside clip polygon bounds
         x_bounds = [v.x() for v in clip_polygon]
