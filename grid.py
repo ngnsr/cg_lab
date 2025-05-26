@@ -1,10 +1,10 @@
 import math
 import json
+from typing import List
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel
-from PySide6.QtCore import Qt, QPointF, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont, QPolygonF
-
-from utils import clip_polygon
+from utils import grid_based_intersection_qt
 
 class GridView(QGraphicsView):
     invalid_action = Signal(str)  # Signal for showing toast messages
@@ -358,35 +358,40 @@ class GridView(QGraphicsView):
     
 
     def calculate_intersection(self):
-        """Calculate the single intersection of all completed polygons."""
+        """Calculate the grid-based intersection of all completed polygons."""
         if len(self.completed_polygons) < 2:
             self.invalid_action.emit("Need at least two polygons to calculate intersection")
             print("Need at least two polygons to calculate intersection")
             return
 
-        # Clear previous intersection polygons
+        # Clear previous intersection graphics
         if hasattr(self, 'scene') and self.scene is not None:
             for item in self.intersection_polygons:
                 if item.scene() == self.scene:
                     self.scene.removeItem(item)
         self.intersection_polygons.clear()
 
-        # Compute intersection
-        intersection_qpolygon = self.compute_all_polygons_intersection()
+        # Compute intersection rectangles
+        intersection_rects = self.compute_all_polygons_intersection()
 
-        if intersection_qpolygon and not intersection_qpolygon.isEmpty():
+        if intersection_rects:
             current_transform = self.transform() if hasattr(self, 'transform') else None
             pen_width_scale_factor = current_transform.m11() if current_transform and current_transform.m11() != 0 else 1.0
 
             if hasattr(self, 'scene') and self.scene is not None:
-                intersection_item = self.scene.addPolygon(
-                    intersection_qpolygon,
-                    QPen(QColor(0, 255, 0, 200), 2 / pen_width_scale_factor),
-                    QBrush(QColor(0, 255, 0, 50))
-                )
-                self.intersection_polygons.append(intersection_item)
-                self.invalid_action.emit("Common intersection calculated")
-                print("Common intersection calculated")
+                print(intersection_rects)
+
+                # Єдиний стиль для всіх прямокутників
+                pen = QPen(QColor(0, 200, 0, 255), 1 / pen_width_scale_factor)  # насичена зелена рамка
+                brush = QBrush(QColor(0, 255, 0, 100))  # менш прозорий зелений заповнення
+
+
+                for rect in intersection_rects:
+                    rect_item = self.scene.addRect(rect, pen, brush)
+                    self.intersection_polygons.append(rect_item)
+
+                self.invalid_action.emit("Grid-based intersection calculated")
+                print("Grid-based intersection calculated")
             else:
                 self.invalid_action.emit("Scene not available for rendering intersection")
                 print("Scene not available for rendering intersection")
@@ -394,197 +399,42 @@ class GridView(QGraphicsView):
             self.invalid_action.emit("No common intersection found")
             print("No common intersection found")
 
-    def compute_all_polygons_intersection(self) -> QPolygonF:
-        """Compute the intersection of all completed polygons."""
-        if not self.completed_polygons or len(self.completed_polygons) < 1:
-            return QPolygonF()
-        
-        first_poly_points = self.completed_polygons[0].get('points', [])
-        if len(first_poly_points) < 3:
-            return QPolygonF()
 
-        intersection_points = first_poly_points[:]
-        print('------', intersection_points )
+    def compute_all_polygons_intersection(self) -> List[QRectF]:
+        """Compute the intersection of all completed polygons using grid-based method."""
+        if len(self.completed_polygons) < 2:
+            return []
+
+        base_poly = QPolygonF(self.completed_polygons[0].get('points', []))
+        if base_poly.count() < 3:
+            return []
+
         for i in range(1, len(self.completed_polygons)):
-            next_poly_points = self.completed_polygons[i].get('points', [])
-            if len(next_poly_points) < 3:
-                return QPolygonF()
+            next_poly = QPolygonF(self.completed_polygons[i].get('points', []))
+            if next_poly.count() < 3:
+                return []
 
-            print('------', next_poly_points)
-            intersection_points = clip_polygon(intersection_points, next_poly_points)
-            if not intersection_points:
-                return QPolygonF()
+            # Перетинаємо дві множини прямокутників
+            if i == 1:
+                intersection_rects = grid_based_intersection_qt(base_poly, next_poly)
+            else:
+                intersection_rects = [
+                    rect for rect in intersection_rects
+                    if any(
+                        grid_based_intersection_qt(QPolygonF([
+                            QPointF(rect.left(), rect.top()),
+                            QPointF(rect.right(), rect.top()),
+                            QPointF(rect.right(), rect.bottom()),
+                            QPointF(rect.left(), rect.bottom())
+                        ]), next_poly)
+                    )
+                ]
 
-        return QPolygonF(intersection_points)
+            if not intersection_rects:
+                return []
 
-    # def compute_all_polygons_intersection(self) -> QPolygonF:
-    #     if not self.completed_polygons or len(self.completed_polygons) < 1:
-    #         return QPolygonF()
+        return intersection_rects
 
-    #     first_poly_points = self.completed_polygons[0].get('points')
-    #     if not first_poly_points:
-    #         return QPolygonF()
-
-    #     intersection_points = first_poly_points[:]
-    #     for i in range(1, len(self.completed_polygons)):
-    #         next_poly_points = self.completed_polygons[i].get('points')
-    #         if not next_poly_points:
-    #             return QPolygonF()
-
-    #         intersection_points = clip_polygon(intersection_points, next_poly_points)
-
-    #         if not intersection_points:
-    #             return QPolygonF()
-
-    #     return QPolygonF(intersection_points)
-
-    
-    # def get_y_intervals_in_slab_custom_contains(
-    #     polygon_points: list[QPointF], # Pass points directly
-    #     x_for_testing: float,
-    #     sorted_unique_global_y_coords: list[float]
-    # ) -> list[tuple[float, float]]:
-    #     """
-    #     For a given x-coordinate (typically midpoint of a slab), and a list of
-    #     all relevant y-coordinates, this function finds the y-intervals
-    #     that are "inside" the polygon using our custom point-in-polygon test.
-    #     """
-    #     if not polygon_points or not sorted_unique_global_y_coords or len(sorted_unique_global_y_coords) < 2:
-    #         return []
-
-    #     intervals = []
-    #     for i in range(len(sorted_unique_global_y_coords) - 1):
-    #         y1 = sorted_unique_global_y_coords[i]
-    #         y2 = sorted_unique_global_y_coords[i+1]
-
-    #         if y1 == y2:
-    #             continue
-            
-    #         mid_y = (y1 + y2) / 2.0
-    #         test_point = QPointF(x_for_testing, mid_y)
-
-    #         # Use our custom point-in-polygon test
-    #         if is_point_in_isothetic_polygon(test_point, polygon_points):
-    #             intervals.append((y1, y2))
-    #     return intervals
-    
-    # def is_point_in_isothetic_polygon(point: QPointF, polygon_points: list[QPointF]) -> bool:
-    #     """
-    #     Checks if a point is inside an isothetic polygon using the Ray Casting algorithm.
-    #     Assumes polygon_points are ordered (clockwise or counter-clockwise).
-    #     Handles points on the boundary as "inside" for simplicity here,
-    #     but this can be adjusted.
-
-    #     Args:
-    #         point: The QPointF to test.
-    #         polygon_points: A list of QPointF vertices defining the isothetic polygon.
-
-    #     Returns:
-    #         True if the point is inside (or on the boundary of) the polygon, False otherwise.
-    #     """
-    #     if not polygon_points or len(polygon_points) < 3: # Need at least a triangle
-    #         return False
-
-    #     num_vertices = len(polygon_points)
-    #     px, py = point.x(), point.y()
-    #     intersections = 0
-
-    #     # For isothetic polygons, we can cast a ray horizontally (e.g., to the right).
-    #     # We count how many times this ray intersects with *vertical* edges of the polygon.
-
-    #     for i in range(num_vertices):
-    #         p1 = polygon_points[i]
-    #         p2 = polygon_points[(i + 1) % num_vertices] # Next vertex, wrapping around
-
-    #         p1x, p1y = p1.x(), p1.y()
-    #         p2x, p2y = p2.x(), p2.y()
-
-    #         # Consider only vertical edges
-    #         if p1x == p2x: # This is a vertical edge
-    #             # Check if the point's y-coordinate is within the y-range of the vertical edge
-    #             if min(p1y, p2y) <= py < max(p1y, p2y): # Note: < on max to handle horizontal segments correctly
-    #                                                 # and avoid double counting if ray passes through a vertex.
-    #                 # Check if the edge is to the right of the point
-    #                 if p1x > px: # Or (px < p1x)
-    #                     intersections += 1
-    #                 # Special case: Point is ON the vertical edge segment
-    #                 elif p1x == px and min(p1y,p2y) <= py <= max(p1y,p2y):
-    #                     return True # Point is on a vertical boundary segment
-
-    #         # Special case: Point is ON a horizontal edge segment
-    #         # This needs to be handled carefully, especially if the ray is collinear with a horizontal edge.
-    #         # For simplicity with horizontal ray casting, we primarily count vertical edge crossings.
-    #         # However, if the point lies exactly on a horizontal edge, it's inside.
-    #         if p1y == p2y and p1y == py: # Point's y matches horizontal edge's y
-    #             if min(p1x, p2x) <= px <= max(p1x, p2x):
-    #                 return True # Point is on a horizontal boundary segment
-
-
-    #     # If the number of intersections is odd, the point is inside.
-    #     # If even, it's outside.
-    #     return intersections % 2 == 1
-
-    # def compute_all_polygons_intersection(self) -> QPolygonF:
-    #     """Compute the intersection of all completed polygons.
-    #     Returns a QPolygonF representing the intersection, or an empty QPolygonF if no intersection."""
-    #     if not self.completed_polygons or len(self.completed_polygons) < 1: # Or < 2 if you prefer
-    #         return QPolygonF() # Return an empty QPolygonF
-
-    #     # Start with the first polygon
-    #     # Assuming self.completed_polygons stores dicts like {'points': [QPointF, ...]}
-    #     try:
-    #         # Ensure 'points' key exists and is not empty
-    #         first_poly_points = self.completed_polygons[0].get('points')
-    #         if not first_poly_points:
-    #              print("Warning: First polygon for intersection has no points.")
-    #              return QPolygonF()
-    #         current_intersection = QPolygonF(first_poly_points)
-    #     except IndexError:
-    #         print("Error: No polygons available to start intersection.")
-    #         return QPolygonF()
-    #     except Exception as e:
-    #         print(f"Error initializing first polygon for intersection: {e}")
-    #         return QPolygonF()
-
-    #     if current_intersection.isEmpty() and first_poly_points:
-    #         # This can happen if the first polygon is malformed (e.g., less than 3 points for a closed shape)
-    #         # QPolygonF([]) is empty. QPolygonF([QPointF(0,0), QPointF(1,1)]) is not empty but not closed.
-    #         # The .intersected() method should handle various inputs.
-    #         # If the first polygon is inherently "empty" or invalid for intersection,
-    #         # the result will likely be empty.
-    #         print(f"Warning: First polygon (points: {len(first_poly_points)}) resulted in an empty QPolygonF.")
-
-
-    #     # Iteratively intersect with the rest of the polygons
-    #     for i in range(1, len(self.completed_polygons)):
-    #         poly_data = self.completed_polygons[i]
-    #         poly_points = poly_data.get('points')
-
-    #         if not poly_points:
-    #             print(f"Warning: Polygon at index {i} has no points, skipping.")
-    #             # Intersecting with an "empty" concept polygon should result in an empty intersection.
-    #             # If current_intersection is already empty, it remains empty.
-    #             # If current_intersection is not empty, intersecting it with an undefined polygon
-    #             # should arguably make it empty.
-    #             return QPolygonF() # Or current_intersection = QPolygonF() and then break
-
-    #         next_polygon = QPolygonF(poly_points)
-            
-    #         if next_polygon.isEmpty() and poly_points:
-    #              print(f"Warning: Polygon at index {i} (points: {len(poly_points)}) resulted in an empty QPolygonF.")
-    #              # If this polygon is "empty", the intersection with it will be empty.
-    #              current_intersection = QPolygonF() # Make the overall intersection empty
-    #              break
-
-
-    #         current_intersection = current_intersection.intersected(next_polygon)
-
-    #         # If at any point the intersection becomes empty, no need to continue
-    #         if current_intersection.isEmpty():
-    #             break
-        
-    #     return current_intersection
-    
     def export_polygons(self, file_name):
         """Export completed polygons and intersection to a JSON file"""
         data = {
