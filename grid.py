@@ -436,57 +436,63 @@ class GridView(QGraphicsView):
         return intersection_rects
 
     def export_polygons(self, file_name):
-        """Export completed polygons and intersection to a JSON file"""
+        """Export completed polygons and intersections to a JSON file"""
         data = {
             "polygons": [
                 [{"x": p.x(), "y": -p.y()} for p in poly['points']]
                 for poly in self.completed_polygons
             ],
-            "intersection": [
-                [{"x": p.x(), "y": -p.y()} for p in inter]
-                for inter in [
-                    QPolygonF(item.polygon()).toList()
-                    for item in self.intersection_polygons
-                ]
+            "intersection_rects": [
+                {
+                    "x": item.rect().x(),
+                    "y": -item.rect().y(),
+                    "width": item.rect().width(),
+                    "height": item.rect().height()
+                }
+                for item in self.intersection_polygons
             ]
         }
-        
+
         with open(file_name, 'w') as f:
             json.dump(data, f, indent=4)
         print(f"Polygons exported to {file_name}")
+
     
     def import_polygons(self, file_name):
-        """Import polygons and intersection from a JSON file"""
+        """Import polygons and intersection rectangles from a JSON file"""
         try:
             with open(file_name, 'r') as f:
                 data = json.load(f)
         except json.JSONDecodeError:
             raise ValueError("Invalid JSON format")
-        
+
         # Validate structure
         if not isinstance(data, dict) or "polygons" not in data:
             raise ValueError("Invalid file format: missing 'polygons' key")
-        
+
         # Clear existing polygons and intersections
         for poly in self.completed_polygons:
             self.scene.removeItem(poly['polygon'])
         self.completed_polygons.clear()
+
         for item in self.intersection_polygons:
             self.scene.removeItem(item)
         self.intersection_polygons.clear()
+
         if self.current_polygon:
             self.scene.removeItem(self.current_polygon)
             self.current_polygon = None
+
         for marker in self.point_items:
             self.scene.removeItem(marker)
         self.point_items.clear()
         self.polygon_points.clear()
-        
+
         # Load polygons
         for poly_points in data.get("polygons", []):
             if len(poly_points) < 3:
                 raise ValueError("Polygon must have at least 3 points")
-            
+
             # Validate isothetic property
             points = [QPointF(p["x"], -p["y"]) for p in poly_points]
             for i in range(len(points)):
@@ -494,43 +500,40 @@ class GridView(QGraphicsView):
                 curr_point = points[i]
                 if not self.is_isothetic_direction(prev_point, curr_point):
                     raise ValueError(f"Non-isothetic edge detected in polygon at point {i}")
-            
+
             # Create and add the polygon
             poly = QPolygonF(points)
             polygon_item = self.scene.addPolygon(
                 poly,
-                QPen(QColor(0, 0, 255, 200), 2/self.transform().m11()),
+                QPen(QColor(0, 0, 255, 200), 2 / self.transform().m11()),
                 QBrush(QColor(0, 0, 255, 50))
             )
             self.completed_polygons.append({
                 'points': points,
                 'polygon': polygon_item
             })
-        
-        # Load intersection if present
+
+        # Load intersection rectangles if present
         intersection_loaded = False
-        for inter_points in data.get("intersection", []):
-            if len(inter_points) < 3:
-                raise ValueError("Intersection polygon must have at least 3 points")
-            
-            # Validate isothetic property
-            points = [QPointF(p["x"], -p["y"]) for p in inter_points]
-            for i in range(len(points)):
-                prev_point = points[i - 1]
-                curr_point = points[i]
-                if not self.is_isothetic_direction(prev_point, curr_point):
-                    raise ValueError(f"Non-isothetic edge detected in intersection at point {i}")
-            
-            # Create and add the intersection polygon
-            poly = QPolygonF(points)
-            intersection_item = self.scene.addPolygon(
-                poly,
-                QPen(QColor(0, 255, 0, 200), 2/self.transform().m11()),
+        for rect_data in data.get("intersection_rects", []):
+            try:
+                x = rect_data["x"]
+                y = -rect_data["y"]
+                w = rect_data["width"]
+                h = rect_data["height"]
+            except KeyError:
+                raise ValueError("Invalid rectangle format in intersection_rects")
+
+            rect = QRectF(x, y, w, h)
+            intersection_item = self.scene.addRect(
+                rect,
+                QPen(QColor(0, 255, 0, 200), 2 / self.transform().m11()),
                 QBrush(QColor(0, 255, 0, 50))
             )
             self.intersection_polygons.append(intersection_item)
             intersection_loaded = True
-        
+
+        # Emit message
         toast_message = f"Imported {len(self.completed_polygons)} polygons"
         if intersection_loaded:
             toast_message += " with intersection"
