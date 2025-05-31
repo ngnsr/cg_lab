@@ -4,7 +4,8 @@ from typing import List
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont, QPolygonF
-from utils import sweep_line_intersection_qt
+from utils import sweep_line_intersection_qt, compute_bounding_box
+import random
 
 class GridView(QGraphicsView):
     invalid_action = Signal(str)  # Signal for showing toast messages
@@ -355,10 +356,115 @@ class GridView(QGraphicsView):
             print(f"Last completed polygon removed, {len(self.completed_polygons)} remaining")
         else:
             print("No polygons to remove")
-    
+
+    def generate_polygons(self):
+            """Generate 5–10 isothetic polygons with a random number of vertices."""
+            # Очищаємо поточний багатокутник і маркери
+            if self.current_polygon:
+                self.scene.removeItem(self.current_polygon)
+                self.current_polygon = None
+            for marker in self.point_items:
+                self.scene.removeItem(marker)
+            self.point_items.clear()
+            self.polygon_points.clear()
+
+            # Очищаємо попередні багатокутники
+            for poly in self.completed_polygons:
+                self.scene.removeItem(poly['polygon'])
+            self.completed_polygons.clear()
+            for item in self.intersection_polygons:
+                self.scene.removeItem(item)
+            self.intersection_polygons.clear()
+
+            # Параметри генерації
+            num_polygons = random.randint(5, 10)  # Кількість багатокутників
+            min_vertices = 10  # Мінімальна кількість вершин
+            max_vertices = 50  # Максимальна кількість вершин
+            grid_size = self.get_adaptive_grid_size()  # Використовуємо розмір сітки
+            region_size = 1000  # Область для генерації (-1000, -1000, 1000, 1000)
+            min_distance = grid_size * 10  # Мінімальна відстань між багатокутниками
+
+            # Список для збереження bounding box багатокутників (для уникнення перетинів)
+            occupied_boxes = []
+
+            for _ in range(num_polygons):
+                # Вибираємо випадкову кількість вершин
+                num_vertices = random.randint(min_vertices, max_vertices // 2) * 2  # Парна, щоб замкнути
+                points = []
+                attempts = 0
+                max_attempts = 10
+
+                while attempts < max_attempts:
+                    # Випадкова початкова точка в межах області
+                    start_x = random.uniform(-region_size, region_size)
+                    start_y = random.uniform(-region_size, region_size)
+                    start_x = round(start_x / grid_size) * grid_size
+                    start_y = round(start_y / grid_size) * grid_size
+                    points = [QPointF(start_x, start_y)]
+                    current_x, current_y = start_x, start_y
+                    is_horizontal = random.choice([True, False])
+
+                    # Генеруємо ізотетичний багатокутник
+                    for i in range(num_vertices - 1):
+                        step = random.uniform(grid_size * 2, grid_size * 5)  # Крок для ребра
+                        if is_horizontal:
+                            next_x = current_x + random.choice([-step, step])
+                            next_x = round(next_x / grid_size) * grid_size
+                            next_y = current_y
+                        else:
+                            next_y = current_y + random.choice([-step, step])
+                            next_y = round(next_y / grid_size) * grid_size
+                            next_x = current_x
+                        points.append(QPointF(next_x, next_y))
+                        current_x, current_y = next_x, next_y
+                        is_horizontal = not is_horizontal  # Чергуємо горизонтальні/вертикальні ребра
+
+                    # Замкнення багатокутника
+                    if abs(current_x - start_x) < 0.001:
+                        points.append(QPointF(start_x, start_y))
+                    elif abs(current_y - start_y) < 0.001:
+                        points.append(QPointF(start_x, start_y))
+                    else:
+                        # Додаємо додаткові точки для замикання
+                        points.append(QPointF(current_x, start_y))
+                        points.append(QPointF(start_x, start_y))
+
+                    # Перевіряємо ізотетичність і валідність
+                    valid = True
+                    for i in range(len(points)):
+                        prev_point = points[i - 1]
+                        curr_point = points[i]
+                        if not self.is_isothetic_direction(prev_point, curr_point):
+                            valid = False
+                            break
+
+                    # Перевіряємо, чи багатокутник не перетинається з іншими
+                    poly = QPolygonF(points)
+
+                    if valid and len(points) >= 3:
+                        polygon_item = self.scene.addPolygon(
+                            poly,
+                            QPen(QColor(0, 0, 255, 200), 2 / self.transform().m11()),
+                            QBrush(QColor(0, 0, 255, 50))
+                        )
+                        self.completed_polygons.append({
+                            'points': points,
+                            'polygon': polygon_item
+                        })
+                        break
+                    else:
+                        points = []
+                        attempts += 1
+
+                if attempts >= max_attempts:
+                    print(f"Failed to generate valid polygon after {max_attempts} attempts")
+
+            self.invalid_action.emit(f"Generated {len(self.completed_polygons)} isothetic polygons")
+            print(f"Generated {len(self.completed_polygons)} isothetic polygons")
+            self.viewport().update()
 
     def calculate_intersection(self):
-        """Calculate the grid-based intersection of all completed polygons."""
+        """Calculate the \ intersection of all completed polygons."""
         if len(self.completed_polygons) < 2:
             self.invalid_action.emit("Need at least two polygons to calculate intersection")
             print("Need at least two polygons to calculate intersection")
@@ -401,7 +507,7 @@ class GridView(QGraphicsView):
 
 
     def compute_all_polygons_intersection(self) -> List[QRectF]:
-        """Compute the intersection of all completed polygons using grid-based method."""
+        """Compute the intersection of all completed polygons."""
         if len(self.completed_polygons) < 2:
             return []
 

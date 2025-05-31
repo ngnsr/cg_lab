@@ -72,6 +72,9 @@ class MainWindow(QMainWindow):
         self.controls_layout.addWidget(self.intersect_button)
         self.controls_layout.addWidget(self.export_button)
         self.controls_layout.addWidget(self.import_button)
+        self.generate_button = QPushButton('Generate Polygons')
+        self.generate_button.clicked.connect(self.grid_view.generate_polygons)
+        self.controls_layout.addWidget(self.generate_button)
         self.controls_layout.addWidget(self.help_button)
         
         # Add controls panel to main layout
@@ -168,6 +171,7 @@ class MainWindow(QMainWindow):
   <li>"Calculate Intersection" computes and displays the common intersection of all completed polygons</li>
   <li>"Export Polygons" saves all polygons and their intersection to a JSON file</li>
   <li>"Import Polygons" loads polygons from a JSON file, replacing existing ones</li>
+  <li>"Generate Polygons" creates 5–10 random isothetic polygons with 10–50 vertices each</li>
 </ul>
 """
         QMessageBox.information(self, "Help", help_text)
