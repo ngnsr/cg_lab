@@ -4,7 +4,7 @@ from typing import List
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont, QPolygonF
-from utils import sweep_line_intersection_qt, compute_bounding_box
+from utils import grid_based_intersection_qt
 import random
 
 class GridView(QGraphicsView):
@@ -522,12 +522,12 @@ class GridView(QGraphicsView):
 
             # Перетинаємо дві множини прямокутників
             if i == 1:
-                intersection_rects = sweep_line_intersection_qt(base_poly, next_poly)
+                intersection_rects = grid_based_intersection_qt(base_poly, next_poly)
             else:
                 intersection_rects = [
                     rect for rect in intersection_rects
                     if any(
-                        sweep_line_intersection_qt(QPolygonF([
+                        grid_based_intersection_qt(QPolygonF([
                             QPointF(rect.left(), rect.top()),
                             QPointF(rect.right(), rect.top()),
                             QPointF(rect.right(), rect.bottom()),
