@@ -4,7 +4,7 @@ from typing import List
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QFont, QPolygonF
-from utils import grid_based_intersection_qt
+from utils import sweep_line_intersection_qt
 
 class GridView(QGraphicsView):
     invalid_action = Signal(str)  # Signal for showing toast messages
@@ -390,8 +390,8 @@ class GridView(QGraphicsView):
                     rect_item = self.scene.addRect(rect, pen, brush)
                     self.intersection_polygons.append(rect_item)
 
-                self.invalid_action.emit("Grid-based intersection calculated")
-                print("Grid-based intersection calculated")
+                self.invalid_action.emit("Intersection calculated")
+                print("Intersection calculated")
             else:
                 self.invalid_action.emit("Scene not available for rendering intersection")
                 print("Scene not available for rendering intersection")
@@ -416,12 +416,12 @@ class GridView(QGraphicsView):
 
             # Перетинаємо дві множини прямокутників
             if i == 1:
-                intersection_rects = grid_based_intersection_qt(base_poly, next_poly)
+                intersection_rects = sweep_line_intersection_qt(base_poly, next_poly)
             else:
                 intersection_rects = [
                     rect for rect in intersection_rects
                     if any(
-                        grid_based_intersection_qt(QPolygonF([
+                        sweep_line_intersection_qt(QPolygonF([
                             QPointF(rect.left(), rect.top()),
                             QPointF(rect.right(), rect.top()),
                             QPointF(rect.right(), rect.bottom()),
